@@ -2,3 +2,6 @@
 python
 flask==2.0.1
 pyserial==3.5
+qrcode==8.2
+Python-IO==0.3
+Pillow==12.0.0

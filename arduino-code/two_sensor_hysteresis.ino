@@ -19,7 +19,7 @@ const int ledPin2 = 4;
 
 float duration_1, duration_2, distance_1, distance_2;
 
-const float LOWER_THRESHOLD = 20.0;
+const float LOWER_THRESHOLD = 30.0;
 const float UPPER_THRESHOLD = 40.0;
 
 bool is_close_1 = false;
