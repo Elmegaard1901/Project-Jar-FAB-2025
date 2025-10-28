@@ -28,6 +28,7 @@ latest_data = {"dist1": None, "state1": None, "dist2": None, "state2": None, "lo
 event_log = []  # stores {"time", "row", "event", "distance"}
 alerts = {1: False, 2: False}  # Which rows need checking
 misplaced_jars = []  # List of {"jar": "R0244", "found_in": 2}
+jar_status = {}  # stores jar status: {"jar_id": {"status": "present/missing/misplaced", "row": 1, "time": "timestamp"}}
 
 # Define jars per row
 row_jars = {
@@ -195,6 +196,48 @@ def mark_wrong_jar():
     }
     return jsonify(response)
 
+@app.route("/update_jar_status", methods=["POST"])
+def update_jar_status():
+    """Update the status of a jar (present/missing)"""
+    data = request.json
+    jar_id = data.get("jar_id")
+    status = data.get("status")  # "present" or "missing"
+    row = data.get("row")
+
+    if not jar_id or not status or not row:
+        return jsonify({"success": False, "error": "Missing required data"}), 400
+
+    if status not in ["present", "missing"]:
+        return jsonify({"success": False, "error": "Invalid status"}), 400
+
+    # Verify jar belongs to this row
+    if row not in row_jars or jar_id not in row_jars[row]:
+        return jsonify({"success": False, "error": "Jar not found in specified row"}), 400
+
+    # Update jar status
+    jar_status[jar_id] = {
+        "status": status,
+        "row": row,
+        "time": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    }
+
+    return jsonify({"success": True, "message": f"Jar {jar_id} marked as {status}"})
+
+@app.route("/get_jar_status/<int:row>")
+def get_jar_status(row):
+    """Get the status of all jars in a specific row"""
+    if row not in row_jars:
+        return jsonify({"success": False, "error": "Invalid row"}), 404
+
+    row_status = {}
+    for jar_id in row_jars[row]:
+        if jar_id in jar_status:
+            row_status[jar_id] = jar_status[jar_id]
+        else:
+            row_status[jar_id] = {"status": "unchecked", "row": row, "time": None}
+
+    return jsonify({"success": True, "jars": row_status})
+
 
 # --- Pages ---
 @app.route("/")
@@ -237,7 +280,7 @@ def home():
         <br>
         <a class="button" href="/live">View Live Tracking</a>
         <a class="button" href="/event_log">View Event Log</a>
-        <a class="button" href="/misplaced">View Misplaced Jars Log</a>
+        <a class="button" href="/misplaced">View Missing & Misplaced Jars</a>
 
         <script>
             async function loadAlerts() {{
@@ -377,32 +420,371 @@ def checklist_row(row):
     if row not in row_jars:
         return "Invalid row", 404
 
-    jars = "".join(f"<li>{jar}</li>" for jar in row_jars[row])
+    # Create individual jar items with checkboxes
+    jar_items = ""
+    for jar in row_jars[row]:
+        jar_items += f"""
+        <div class='jar-item'>
+            <div class='jar-info'>
+                <span class='jar-id'>{jar}</span>
+            </div>
+            <div class='jar-controls'>
+                <label class='checkbox-container present'>
+                    <input type='checkbox' class='jar-checkbox' data-jar='{jar}' data-status='present'>
+                    <span class='checkmark present-check'></span>
+                    <span class='label-text'>Present</span>
+                </label>
+                <label class='checkbox-container missing'>
+                    <input type='checkbox' class='jar-checkbox' data-jar='{jar}' data-status='missing'>
+                    <span class='checkmark missing-check'></span>
+                    <span class='label-text'>Missing</span>
+                </label>
+            </div>
+        </div>
+        """
+
     html = f"""
     <html>
     <head>
         <title>Checklist - Row {row}</title>
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
         <style>
-            body {{ font-family: sans-serif; background: #fafafa; padding: 20px; }}
-            .card {{ background: white; padding: 20px; border-radius: 8px; margin: 10px 0;
-                     box-shadow: 0 2px 6px rgba(0,0,0,0.1); }}
-            input {{ padding: 5px; margin: 5px; }}
-            button {{ padding: 5px 10px; }}
+            body {{ 
+                font-family: sans-serif; 
+                background: #f9f9f9; 
+                padding: 20px;
+                color: #333;
+            }}
+            
+            .container {{
+                max-width: 800px;
+                margin: 0 auto;
+            }}
+            
+            .card {{
+                background: white;
+                padding: 20px;
+                border-radius: 8px;
+                box-shadow: 0 2px 6px rgba(0,0,0,0.1);
+                margin: 10px 0;
+            }}
+            
+            h1 {{
+                color: #333;
+                margin-bottom: 10px;
+            }}
+            
+            p {{
+                color: #666;
+                margin-bottom: 20px;
+            }}
+            
+            .jar-item {{
+                display: flex;
+                align-items: center;
+                justify-content: space-between;
+                padding: 15px 0;
+                border-bottom: 1px solid #eee;
+            }}
+            
+            .jar-item:last-child {{
+                border-bottom: none;
+            }}
+            
+            .jar-info {{
+                flex: 1;
+            }}
+            
+            .jar-id {{
+                font-weight: 600;
+                font-size: 1.1em;
+                color: #333;
+                background: #f8f9fa;
+                padding: 6px 10px;
+                border-radius: 4px;
+                display: inline-block;
+            }}
+            
+            .jar-controls {{
+                display: flex;
+                gap: 20px;
+                align-items: center;
+            }}
+            
+            .checkbox-container {{
+                position: relative;
+                display: flex;
+                align-items: center;
+                cursor: pointer;
+                user-select: none;
+                gap: 8px;
+            }}
+            
+            .checkbox-container input {{
+                position: absolute;
+                opacity: 0;
+                cursor: pointer;
+                height: 0;
+                width: 0;
+            }}
+            
+            .checkmark {{
+                height: 18px;
+                width: 18px;
+                border-radius: 3px;
+                border: 2px solid #ddd;
+                position: relative;
+                transition: all 0.2s ease;
+            }}
+            
+            .present-check {{
+                border-color: #4CAF50;
+            }}
+            
+            .missing-check {{
+                border-color: #f44336;
+            }}
+            
+            .checkbox-container input:checked ~ .present-check {{
+                background-color: #4CAF50;
+                border-color: #4CAF50;
+            }}
+            
+            .checkbox-container input:checked ~ .missing-check {{
+                background-color: #f44336;
+                border-color: #f44336;
+            }}
+            
+            .checkmark:after {{
+                content: "";
+                position: absolute;
+                display: none;
+                left: 5px;
+                top: 1px;
+                width: 4px;
+                height: 8px;
+                border: solid white;
+                border-width: 0 2px 2px 0;
+                transform: rotate(45deg);
+            }}
+            
+            .checkbox-container input:checked ~ .checkmark:after {{
+                display: block;
+            }}
+            
+            .label-text {{
+                font-weight: 500;
+                font-size: 0.9em;
+            }}
+            
+            .present .label-text {{
+                color: #4CAF50;
+            }}
+            
+            .missing .label-text {{
+                color: #f44336;
+            }}
+            
+            .action-section {{
+                margin-bottom: 20px;
+            }}
+            
+            .action-section h3 {{
+                color: #333;
+                margin-bottom: 15px;
+                font-size: 1.2em;
+            }}
+            
+            .button {{
+                display: inline-block;
+                padding: 10px 20px;
+                border: none;
+                border-radius: 5px;
+                cursor: pointer;
+                font-weight: 600;
+                text-decoration: none;
+                transition: background-color 0.2s ease;
+                font-size: 0.9em;
+                margin: 5px;
+            }}
+            
+            .btn-primary {{
+                background: #007bff;
+                color: white;
+            }}
+            
+            .btn-primary:hover {{
+                background: #0056b3;
+            }}
+            
+            .btn-success {{
+                background: #4CAF50;
+                color: white;
+            }}
+            
+            .btn-success:hover {{
+                background: #45a049;
+            }}
+            
+            .input-group {{
+                display: flex;
+                gap: 10px;
+                align-items: center;
+                flex-wrap: wrap;
+            }}
+            
+            .form-input {{
+                padding: 10px;
+                border: 1px solid #ddd;
+                border-radius: 5px;
+                font-size: 1em;
+                flex: 1;
+                min-width: 200px;
+            }}
+            
+            .form-input:focus {{
+                outline: none;
+                border-color: #007bff;
+            }}
+            
+            .summary {{
+                background: #f8f9fa;
+                padding: 15px;
+                border-radius: 5px;
+                margin-top: 15px;
+                display: none;
+                border: 1px solid #dee2e6;
+            }}
+            
+            .summary.show {{
+                display: block;
+            }}
+            
+            @media (max-width: 600px) {{
+                .jar-item {{
+                    flex-direction: column;
+                    align-items: flex-start;
+                    gap: 10px;
+                }}
+                
+                .jar-controls {{
+                    width: 100%;
+                    justify-content: flex-start;
+                }}
+                
+                .input-group {{
+                    flex-direction: column;
+                    align-items: stretch;
+                }}
+            }}
         </style>
     </head>
     <body>
-        <h1>Checklist - Row {row}</h1>
-        <p>Confirm which jars are in place and mark misplaced jars.</p>
-        <div class='card'>
-            <ul>{jars}</ul>
-            <button onclick="clearAlert({row})">Clear Alert</button>
-            <br><br>
-            <input id="jar_{row}" placeholder="Jar ID (if misplaced)">
-            <button onclick="markWrongJar({row})">Mark Wrong Jar</button>
+        <div class="container">
+            <h1>Checklist - Row {row}</h1>
+            <p>Check each jar's status and manage misplaced items</p>
+            
+            <div class="card">
+                {jar_items}
+            </div>
+            
+            <div class="card">
+                <div class="action-section">
+                    <h3>Quick Actions</h3>
+                    <button class="button btn-success" onclick="clearAlert({row})">Clear Alert for Row {row}</button>
+                    <button class="button btn-primary" onclick="generateSummary()">Generate Summary</button>
+                </div>
+                
+                <div class="action-section">
+                    <h3>Report Misplaced Jar</h3>
+                    <div class="input-group">
+                        <input id="jar_{row}" class="form-input" placeholder="Enter Jar ID (e.g., R0244)">
+                        <button class="button btn-primary" onclick="markWrongJar({row})">Report Misplaced</button>
+                    </div>
+                </div>
+                
+                <div id="summary" class="summary">
+                    <h4>Current Status Summary</h4>
+                    <div id="summary-content"></div>
+                </div>
+            </div>
         </div>
+        
         <a href="/">⬅ Back to Home</a>
 
         <script>
+        // Handle checkbox interactions
+        document.addEventListener('DOMContentLoaded', function() {{
+            const checkboxes = document.querySelectorAll('.jar-checkbox');
+            
+            // Load existing jar status
+            loadJarStatus();
+            
+            checkboxes.forEach(checkbox => {{
+                checkbox.addEventListener('change', function() {{
+                    const jar = this.dataset.jar;
+                    const status = this.dataset.status;
+                    
+                    if (this.checked) {{
+                        // Uncheck other checkboxes for the same jar
+                        checkboxes.forEach(cb => {{
+                            if (cb.dataset.jar === jar && cb !== this) {{
+                                cb.checked = false;
+                            }}
+                        }});
+                        
+                        // Save status to server
+                        updateJarStatus(jar, status);
+                        console.log(`Jar ${{jar}} marked as ${{status}}`);
+                    }}
+                }});
+            }});
+        }});
+
+        async function loadJarStatus() {{
+            try {{
+                const res = await fetch(`/get_jar_status/{row}`);
+                const data = await res.json();
+                
+                if (data.success) {{
+                    const checkboxes = document.querySelectorAll('.jar-checkbox');
+                    
+                    Object.entries(data.jars).forEach(([jarId, jarData]) => {{
+                        if (jarData.status !== 'unchecked') {{
+                            const checkbox = document.querySelector(`[data-jar="${{jarId}}"][data-status="${{jarData.status}}"]`);
+                            if (checkbox) {{
+                                checkbox.checked = true;
+                            }}
+                        }}
+                    }});
+                }}
+            }} catch (error) {{
+                console.error('Error loading jar status:', error);
+            }}
+        }}
+
+        async function updateJarStatus(jarId, status) {{
+            try {{
+                const res = await fetch('/update_jar_status', {{
+                    method: 'POST',
+                    headers: {{ 'Content-Type': 'application/json' }},
+                    body: JSON.stringify({{
+                        jar_id: jarId,
+                        status: status,
+                        row: {row}
+                    }})
+                }});
+                
+                const data = await res.json();
+                if (!data.success) {{
+                    alert(`Error updating jar status: ${{data.error}}`);
+                }}
+            }} catch (error) {{
+                console.error('Error updating jar status:', error);
+                alert('Error updating jar status');
+            }}
+        }}
+
         async function clearAlert(row) {{
             const res = await fetch(`/clear_alert/${{row}}`, {{
                 method: "POST"
@@ -418,7 +800,10 @@ def checklist_row(row):
 
         async function markWrongJar(row) {{
             const jar = document.getElementById(`jar_${{row}}`).value.trim();
-            if (!jar) return alert("Please enter a jar ID");
+            if (!jar) {{
+                alert("Please enter a jar ID");
+                return;
+            }}
 
             const res = await fetch("/mark_wrong_jar", {{
                 method: "POST",
@@ -435,9 +820,43 @@ def checklist_row(row):
                 }} else {{
                     alert(`Jar ${{jar}} not found in known jar list.`);
                 }}
+                document.getElementById(`jar_${{row}}`).value = '';
             }} else {{
                 alert("Error: " + (data.error || "Unknown issue."));
             }}
+        }}
+        
+        function generateSummary() {{
+            const checkboxes = document.querySelectorAll('.jar-checkbox:checked');
+            const summary = {{
+                present: [],
+                missing: []
+            }};
+            
+            checkboxes.forEach(cb => {{
+                const jar = cb.dataset.jar;
+                const status = cb.dataset.status;
+                summary[status].push(jar);
+            }});
+            
+            const totalJars = {len(row_jars[row])};
+            const checkedJars = checkboxes.length;
+            const uncheckedJars = totalJars - checkedJars;
+            
+            let summaryHTML = `
+                <p><strong>Total Jars:</strong> ${{totalJars}}</p>
+                <p><strong>Checked:</strong> ${{checkedJars}} | <strong>Unchecked:</strong> ${{uncheckedJars}}</p>
+            `;
+            
+            if (summary.present.length > 0) {{
+                summaryHTML += `<p><strong>Present (${{summary.present.length}}):</strong> ${{summary.present.join(', ')}}</p>`;
+            }}
+            if (summary.missing.length > 0) {{
+                summaryHTML += `<p><strong>Missing (${{summary.missing.length}}):</strong> ${{summary.missing.join(', ')}}</p>`;
+            }}
+            
+            document.getElementById('summary-content').innerHTML = summaryHTML;
+            document.getElementById('summary').classList.add('show');
         }}
         </script>
     </body>
@@ -448,25 +867,194 @@ def checklist_row(row):
 
 @app.route("/misplaced")
 def misplaced_page():
-    rows = "".join([
-        f"<tr><td>{m['time']}</td><td>{m['jar']}</td><td>{m['found_in']}</td><td>{m['correct_row'] or 'Unknown'}</td></tr>"
+    # Get all missing jars from jar_status
+    missing_jars = []
+    for jar_id, status_info in jar_status.items():
+        if status_info['status'] == 'missing':
+            # Find which row this jar belongs to
+            correct_row = None
+            for row, jars in row_jars.items():
+                if jar_id in jars:
+                    correct_row = row
+                    break
+            
+            missing_jars.append({
+                'jar': jar_id,
+                'row': correct_row,
+                'time': status_info['time']
+            })
+
+    # Create summary statistics
+    total_jars = sum(len(jars) for jars in row_jars.values())
+    total_checked = len([j for j in jar_status.values() if j['status'] in ['present', 'missing']])
+    total_present = len([j for j in jar_status.values() if j['status'] == 'present'])
+    total_missing = len(missing_jars)
+    total_misplaced = len(misplaced_jars)
+
+    # Create tables
+    missing_rows = "".join([
+        f"<tr><td>{m['time'] or 'N/A'}</td><td>{m['jar']}</td><td>Row {m['row'] or 'Unknown'}</td><td><span class='status-missing'>Missing</span></td></tr>"
+        for m in missing_jars
+    ])
+    
+    misplaced_rows = "".join([
+        f"<tr><td>{m['time']}</td><td>{m['jar']}</td><td>Row {m['correct_row'] or 'Unknown'}</td><td><span class='status-misplaced'>Found in Row {m['found_in']}</span></td></tr>"
         for m in misplaced_jars
     ])
+
+    all_rows = missing_rows + misplaced_rows
+
     html = f"""
-    <html><head><title>Misplaced Jars</title>
-    <style>
-        body {{ font-family: sans-serif; background: #fafafa; padding: 20px; }}
-        table {{ width: 80%; border-collapse: collapse; margin: auto; background: white; }}
-        th, td {{ padding: 8px; border: 1px solid #ccc; text-align: center; }}
-        th {{ background: #eee; }}
-    </style></head><body>
-    <h1>Misplaced Jars Log</h1>
-    <table>
-    <tr><th>Time</th><th>Jar</th><th>Found In</th><th>Should Be In</th></tr>
-    {rows or "<tr><td colspan='4'>No misplaced jars recorded.</td></tr>"}
-    </table>
-    <br><a href="/">⬅ Back to Home</a>
-    </body></html>
+    <html>
+    <head>
+        <title>Misplaced and Missing Jars</title>
+        <style>
+            body {{ font-family: sans-serif; background: #f9f9f9; padding: 20px; }}
+            .container {{ max-width: 1000px; margin: 0 auto; }}
+            .card {{ background: white; padding: 20px; border-radius: 8px;
+                     box-shadow: 0 2px 6px rgba(0,0,0,0.1); margin: 10px 0; }}
+            .stats-grid {{ display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 15px; margin-bottom: 20px; }}
+            .stat-item {{ background: white; padding: 15px; border-radius: 8px; text-align: center;
+                         box-shadow: 0 2px 6px rgba(0,0,0,0.1); }}
+            .stat-number {{ font-size: 2em; font-weight: bold; margin-bottom: 5px; }}
+            .stat-label {{ color: #666; font-size: 0.9em; }}
+            .stat-total {{ color: #333; }}
+            .stat-present {{ color: #4CAF50; }}
+            .stat-missing {{ color: #f44336; }}
+            .stat-misplaced {{ color: #ff9800; }}
+            table {{ width: 100%; border-collapse: collapse; margin: auto; background: white; }}
+            th, td {{ padding: 12px; border: 1px solid #ddd; text-align: left; }}
+            th {{ background: #f8f9fa; font-weight: bold; }}
+            tr:nth-child(even) {{ background: #f9f9f9; }}
+            tr:hover {{ background: #e8f4f8; }}
+            .status-missing {{ background: #f44336; color: white; padding: 4px 8px; border-radius: 4px; font-size: 0.8em; }}
+            .status-misplaced {{ background: #ff9800; color: white; padding: 4px 8px; border-radius: 4px; font-size: 0.8em; }}
+            .section-title {{ color: #333; margin: 20px 0 10px 0; }}
+            .empty-state {{ text-align: center; color: #666; font-style: italic; padding: 30px; }}
+            .button {{ display: inline-block; padding: 10px 20px; background: #007bff; color: white;
+                      border-radius: 5px; text-decoration: none; margin: 10px 5px; }}
+            .btn-export {{ background: #28a745; }}
+            .btn-refresh {{ background: #17a2b8; }}
+        </style>
+        <script>
+            // Auto-refresh every 30 seconds
+            setTimeout(() => location.reload(), 30000);
+        </script>
+    </head>
+    <body>
+        <div class="container">
+            <h1>Misplaced and Missing Jars Overview</h1>
+            <p>Comprehensive tracking of jar status across all monitored rows</p>
+            
+            <div class="stats-grid">
+                <div class="stat-item">
+                    <div class="stat-number stat-total">{total_jars}</div>
+                    <div class="stat-label">Total Jars</div>
+                </div>
+                <div class="stat-item">
+                    <div class="stat-number stat-present">{total_present}</div>
+                    <div class="stat-label">Present</div>
+                </div>
+                <div class="stat-item">
+                    <div class="stat-number stat-missing">{total_missing}</div>
+                    <div class="stat-label">Missing</div>
+                </div>
+                <div class="stat-item">
+                    <div class="stat-number stat-misplaced">{total_misplaced}</div>
+                    <div class="stat-label">Misplaced</div>
+                </div>
+                <div class="stat-item">
+                    <div class="stat-number">{total_jars - total_checked}</div>
+                    <div class="stat-label">Unchecked</div>
+                </div>
+            </div>
+
+            <div class="card">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
+                    <h2 class="section-title">All Issues</h2>
+                    <div>
+                        <a href="/misplaced" class="button btn-refresh">🔄 Refresh</a>
+                        <button onclick="exportData()" class="button btn-export">📊 Export Data</button>
+                    </div>
+                </div>
+                
+                {f'''
+                <table>
+                    <tr>
+                        <th>Timestamp</th>
+                        <th>Jar ID</th>
+                        <th>Should Be In</th>
+                        <th>Status</th>
+                    </tr>
+                    {all_rows}
+                </table>
+                ''' if (missing_jars or misplaced_jars) else '<div class="empty-state">🎉 No missing or misplaced jars found! All jars are properly accounted for.</div>'}
+            </div>
+
+            <div class="card">
+                <h3>Missing Jars Details ({total_missing})</h3>
+                {f'''
+                <table>
+                    <tr>
+                        <th>Timestamp</th>
+                        <th>Jar ID</th>
+                        <th>Should Be In</th>
+                        <th>Status</th>
+                    </tr>
+                    {missing_rows}
+                </table>
+                ''' if missing_jars else '<div class="empty-state">No missing jars recorded.</div>'}
+            </div>
+
+            <div class="card">
+                <h3>Misplaced Jars Details ({total_misplaced})</h3>
+                {f'''
+                <table>
+                    <tr>
+                        <th>Timestamp</th>
+                        <th>Jar ID</th>
+                        <th>Should Be In</th>
+                        <th>Status</th>
+                    </tr>
+                    {misplaced_rows}
+                </table>
+                ''' if misplaced_jars else '<div class="empty-state">No misplaced jars recorded.</div>'}
+            </div>
+
+            <div style="text-align: center; margin-top: 20px;">
+                <a href="/" class="button">⬅ Back to Home</a>
+                <a href="/event_log" class="button">📋 View Event Log</a>
+            </div>
+        </div>
+
+        <script>
+        function exportData() {{
+            const data = {{
+                timestamp: new Date().toISOString(),
+                summary: {{
+                    total_jars: {total_jars},
+                    present: {total_present},
+                    missing: {total_missing},
+                    misplaced: {total_misplaced},
+                    unchecked: {total_jars - total_checked}
+                }},
+                missing_jars: {missing_jars},
+                misplaced_jars: {misplaced_jars}
+            }};
+            
+            const blob = new Blob([JSON.stringify(data, null, 2)], {{type: 'application/json'}});
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `jar_status_${{new Date().toISOString().split('T')[0]}}.json`;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            URL.revokeObjectURL(url);
+        }}
+        </script>
+    </body>
+    </html>
     """
     return render_template_string(html)
 
