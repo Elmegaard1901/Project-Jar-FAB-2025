@@ -9,7 +9,7 @@ from datetime import datetime
 from flask import Flask, Response, render_template_string, request, jsonify, send_file, url_for
 
 # --- Configuration ---
-SERIAL_PORT = "/dev/cu.usbmodem1101"  # Adjust (e.g. "COM3" on Windows)
+SERIAL_PORT = "/dev/cu.usbmodem101"  # Adjust (e.g. "COM3" on Windows)
 BAUD_RATE = 115200
 MOCK_MODE = False  # Set to True to run without serial device
 
@@ -82,18 +82,30 @@ def read_serial():
                     continue
                 parts = line.split(",")
                 if len(parts) < 4:
+                    print(f"Warning: Incomplete data received: {line}")
                     continue
-                # Arduino sends distance1,state1,distance2,state2 and optionally lower,upper thresholds
-                dist1, state1, dist2, state2 = float(parts[0]), int(parts[1]), float(parts[2]), int(parts[3])
-                # If Arduino also sends threshold values, use them for visualization
-                lower_threshold = float(parts[4]) if len(parts) > 4 else 30.0
-                upper_threshold = float(parts[5]) if len(parts) > 5 else 40.0
+                try:
+                    # Arduino sends distance1,state1,distance2,state2 and optionally lower,upper thresholds
+                    # Convert Arduino state values (50/0) to boolean (1/0)
+                    dist1, state1_raw, dist2, state2_raw = float(parts[0]), int(parts[1]), float(parts[2]), int(parts[3])
+                    state1 = 1 if state1_raw > 0 else 0
+                    state2 = 1 if state2_raw > 0 else 0
+                    # If Arduino also sends threshold values, use them for visualization
+                    lower_threshold = float(parts[4]) if len(parts) > 4 else 30.0
+                    upper_threshold = float(parts[5]) if len(parts) > 5 else 40.0
+                except (ValueError, IndexError) as e:
+                    print(f"Error parsing data: {line} - {e}")
+                    continue
 
             latest_data.update({
                 "dist1": dist1, "state1": state1,
                 "dist2": dist2, "state2": state2,
                 "lower": lower_threshold, "upper": upper_threshold
             })
+
+            # Debug output for real sensor data (not mock mode)
+            if not MOCK_MODE and arduino is not None:
+                print(f"Sensor data: D1={dist1:.1f}cm S1={state1}, D2={dist2:.1f}cm S2={state2}")
 
             # Detect transitions into the "needs checking" state (distance < lower)
             # Only set alerts when the state transitions to 1. Clearing alerts is
@@ -106,6 +118,7 @@ def read_serial():
                     "distance": round(dist1, 1)
                 })
                 alerts[1] = True
+                print(f"Event logged: Row 1 needs checking (distance: {dist1:.1f} cm)")
             if prev_state2 is not None and prev_state2 != state2 and state2 == 1:
                 event_log.append({
                     "time": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
@@ -114,6 +127,7 @@ def read_serial():
                     "distance": round(dist2, 1)
                 })
                 alerts[2] = True
+                print(f"Event logged: Row 2 needs checking (distance: {dist2:.1f} cm)")
 
             prev_state1, prev_state2 = state1, state2
             if not MOCK_MODE:
