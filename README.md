@@ -243,22 +243,6 @@ Use mock mode to test the web interface without hardware:
 MOCK_MODE = True
 ```
 
-## 📊 Performance Considerations
-
-- **Sensor Reading Rate**: ~10 Hz (100ms delay)
-- **Web Update Rate**: 5 Hz (200ms via SSE)
-- **Chart Data Points**: Limited to last 100 points for performance
-- **Event Log**: Stores unlimited events, displays last 100
-
-## 🔮 Future Enhancements
-
-- Database storage for persistent data
-- Multiple sensor rows support
-- Mobile app interface
-- Email/SMS alert notifications
-- Advanced analytics and reporting
-- Integration with inventory management systems
-
 ## 👥 Contributors
 
 - **Course**: FAB 2025, University of Copenhagen (KU)
