@@ -1,7 +1,4 @@
-# This is a list of packages required for the project
-python
-flask==2.0.1
-pyserial==3.5
-qrcode==8.2
-Python-IO==0.3
-Pillow==12.0.0
+Flask>=2.0.1
+pyserial>=3.5
+qrcode[pil]>=7.0
+Pillow>=9.0.0

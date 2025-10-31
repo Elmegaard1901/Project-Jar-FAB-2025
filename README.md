@@ -16,6 +16,8 @@ The JAR Tracking System monitors jar placement using ultrasonic sensors and prov
 - **Misplaced jar tracking** to identify incorrectly placed items
 - **Mock mode** for testing without hardware
 
+**⚠️ Network Requirement**: Computer and mobile device must be on the same Wi-Fi network for QR codes to work properly.
+
 ## 🏗️ System Architecture
 
 The system consists of two main components:

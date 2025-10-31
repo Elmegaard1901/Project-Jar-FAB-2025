@@ -103,9 +103,9 @@ def read_serial():
                 "lower": lower_threshold, "upper": upper_threshold
             })
 
-            # Debug output for real sensor data (not mock mode)
-            if not MOCK_MODE and arduino is not None:
-                print(f"Sensor data: D1={dist1:.1f}cm S1={state1}, D2={dist2:.1f}cm S2={state2}")
+            # # Debug output for real sensor data (not mock mode)
+            # if not MOCK_MODE and arduino is not None:
+            #     print(f"Sensor data: D1={dist1:.1f}cm S1={state1}, D2={dist2:.1f}cm S2={state2}")
 
             # Detect transitions into the "needs checking" state (distance < lower)
             # Only set alerts when the state transitions to 1. Clearing alerts is
